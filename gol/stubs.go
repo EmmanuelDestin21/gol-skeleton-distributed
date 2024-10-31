@@ -1,4 +1,4 @@
-package stubs
+package gol
 
 var GOLHandler = "GOLOperations.Evolve"
 

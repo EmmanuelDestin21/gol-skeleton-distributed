@@ -1,4 +1,4 @@
-package main
+package gol
 
 import (
 	"bufio"
@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/rpc"
 	"os"
-	"uk.ac.bris.cs/gameoflife/gol"
 )
 
 func makeCall(client *rpc.Client, message string) {

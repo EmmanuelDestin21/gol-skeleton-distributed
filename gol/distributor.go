@@ -1,7 +1,7 @@
 package gol
 
 import (
-	"gol/stubs"
+	"net/rpc"
 	"strconv"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -15,9 +15,18 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
+func makeCall(client *rpc.Client, InitialBoard [][]byte, Turns int, Threads int, ImageWidth int, ImageHeight int) {
+	request := Request{InitialBoard: InitialBoard, Turns: Turns, Threads: Threads, ImageWidth: ImageWidth, ImageHeight: ImageHeight}
+	response := new(Response)
+	err := client.Call(GOLHandler, request, response)
+	if err != nil {
+		panic(err)
+	}
+	// utilise the response somehow
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
-
 	// Create a 2D slice to store the world.
 	world := make([][]byte, p.ImageHeight)
 	for i := range world {

@@ -1,4 +1,4 @@
-package main
+package gol
 
 import (
 	"errors"
@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"net"
 	"net/rpc"
-	"secretstrings/stubs"
 	"time"
 )
 
