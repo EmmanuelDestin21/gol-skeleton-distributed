@@ -1,8 +1,8 @@
 package gol
 
 import (
+	"gol/stubs"
 	"strconv"
-
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -17,6 +17,7 @@ type distributorChannels struct {
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
+
 	// Create a 2D slice to store the world.
 	world := make([][]byte, p.ImageHeight)
 	for i := range world {
