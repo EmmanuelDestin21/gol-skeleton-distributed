@@ -1,6 +1,8 @@
 package gol
 
 import (
+	"flag"
+	"log"
 	"net/rpc"
 	"strconv"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -15,18 +17,19 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
-func makeCall(client *rpc.Client, InitialBoard [][]byte, Turns int, Threads int, ImageWidth int, ImageHeight int) {
-	request := Request{InitialBoard: InitialBoard, Turns: Turns, Threads: Threads, ImageWidth: ImageWidth, ImageHeight: ImageHeight}
+func makeCall(client *rpc.Client, p Params, world [][]byte) *Response {
+	request := Request{P: p, World: world}
 	response := new(Response)
 	err := client.Call(GOLHandler, request, response)
+
 	if err != nil {
 		panic(err)
 	}
-	// utilise the response somehow
+
+	return response
 }
 
-// distributor divides the work between workers and interacts with other goroutines.
-func distributor(p Params, c distributorChannels) {
+func createInitialBoard(p Params, c distributorChannels) [][]byte {
 	// Create a 2D slice to store the world.
 	world := make([][]byte, p.ImageHeight)
 	for i := range world {
@@ -44,70 +47,48 @@ func distributor(p Params, c distributorChannels) {
 			world[y][x] = <-c.ioInput
 		}
 	}
+	return world
+}
 
-	turn := 0
-	c.events <- StateChange{turn, Executing}
+// distributor divides the work between workers and interacts with other goroutines.
+func distributor(p Params, c distributorChannels) {
 
-	// Execute all turns of the Game of Life.
-	for turn < p.Turns {
-		world = calculateNextState(p, world)
-		turn++
+	world := createInitialBoard(p, c)
+
+	// client side code
+	var server string
+	if flag.Lookup("server") == nil {
+		serverPtr := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+		flag.Parse()
+		server = *serverPtr
+	} else {
+		server = flag.Lookup("server").Value.String()
 	}
-	aliveCells := calculateAliveCells(p, world)
+
+	client, err := rpc.Dial("tcp", server)
+	if err != nil {
+		log.Fatal("dialing:", err)
+	}
+
+	defer client.Close()
+
+	response := makeCall(client, p, world)
+
+	// utilise the response
+	aliveCells := calculateAliveCells(p, response.FinalBoard)
 
 	// Report the final state using FinalTurnCompleteEvent.
-	FinalTurnCompleteEvent := FinalTurnComplete{turn, aliveCells}
+	FinalTurnCompleteEvent := FinalTurnComplete{response.Turn, aliveCells}
 	c.events <- FinalTurnCompleteEvent
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
-	c.events <- StateChange{turn, Quitting}
+	c.events <- StateChange{response.Turn, Quitting}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)
-}
-
-func calculateNextState(p Params, world [][]byte) [][]byte {
-	newWorld := make([][]byte, p.ImageHeight)
-	for i := range newWorld {
-		newWorld[i] = make([]byte, p.ImageWidth)
-	}
-
-	IMHT := p.ImageHeight
-	IMWD := p.ImageWidth
-
-	for y := 0; y < IMHT; y++ {
-		for x := 0; x < IMWD; x++ {
-			// Calculate sum of 8 neighbors
-			sum := int(world[(y+IMHT-1)%IMHT][(x+IMWD-1)%IMWD]/255) +
-				int(world[(y+IMHT-1)%IMHT][(x+IMWD)%IMWD]/255) +
-				int(world[(y+IMHT-1)%IMHT][(x+IMWD+1)%IMWD]/255) +
-				int(world[(y+IMHT)%IMHT][(x+IMWD-1)%IMWD]/255) +
-				int(world[(y+IMHT)%IMHT][(x+IMWD+1)%IMWD]/255) +
-				int(world[(y+IMHT+1)%IMHT][(x+IMWD-1)%IMWD]/255) +
-				int(world[(y+IMHT+1)%IMHT][(x+IMWD)%IMWD]/255) +
-				int(world[(y+IMHT+1)%IMHT][(x+IMWD+1)%IMWD]/255)
-
-			if world[y][x] == 255 {
-				// Cell is alive
-				if sum < 2 || sum > 3 {
-					newWorld[y][x] = 0 // Underpopulation or overpopulation: cell dies
-				} else {
-					newWorld[y][x] = 255 // Cell survives
-				}
-			} else {
-				// Cell is dead
-				if sum == 3 {
-					newWorld[y][x] = 255 // Reproduction: cell becomes alive
-				} else {
-					newWorld[y][x] = 0 // Cell remains dead
-				}
-			}
-		}
-	}
-	return newWorld
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -122,6 +103,5 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 			}
 		}
 	}
-
 	return aliveCells
 }

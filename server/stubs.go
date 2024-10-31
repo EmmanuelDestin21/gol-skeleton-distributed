@@ -1,6 +1,13 @@
-package gol
+package main
 
 var GOLHandler = "GOLOperations.Evolve"
+
+type Params struct {
+	Turns       int
+	Threads     int
+	ImageWidth  int
+	ImageHeight int
+}
 
 type Response struct {
 	FinalBoard [][]byte
