@@ -2,9 +2,11 @@ package gol
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/rpc"
 	"strconv"
+	"time"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -17,9 +19,10 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
-func makeCall(client *rpc.Client, p Params, world [][]byte) *Response {
+func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byte) *Response {
 	request := Request{P: p, World: world}
 	response := new(Response)
+	go getCurrentAliveCells(c, p, world, client)
 	err := client.Call(GOLHandler, request, response)
 
 	if err != nil {
@@ -27,6 +30,24 @@ func makeCall(client *rpc.Client, p Params, world [][]byte) *Response {
 	}
 
 	return response
+}
+
+func getCurrentAliveCells(c distributorChannels, p Params, world [][]byte, client *rpc.Client) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		response := new(Response)
+		err := client.Call(CurrentAliveCellsHandler, world, response)
+		if err != nil {
+			fmt.Println("Error fetching world state:", err)
+			continue
+		}
+		// Process the current state
+		aliveCells := calculateAliveCells(p, response.FinalBoard)
+		AliveCellsCountEvent := AliveCellsCount{response.Turn, len(aliveCells)}
+		c.events <- AliveCellsCountEvent
+	}
 }
 
 func createInitialBoard(p Params, c distributorChannels) [][]byte {
@@ -58,7 +79,7 @@ func distributor(p Params, c distributorChannels) {
 	// client side code
 	var server string
 	if flag.Lookup("server") == nil {
-		serverPtr := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+		serverPtr := flag.String("server", "54.89.128.7:8030", "IP:port string to connect to as server")
 		flag.Parse()
 		server = *serverPtr
 	} else {
@@ -72,7 +93,7 @@ func distributor(p Params, c distributorChannels) {
 
 	defer client.Close()
 
-	response := makeCall(client, p, world)
+	response := makeCall(client, c, p, world)
 
 	// utilise the response
 	aliveCells := calculateAliveCells(p, response.FinalBoard)

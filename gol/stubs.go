@@ -1,6 +1,7 @@
 package gol
 
 var GOLHandler = "GOLOperations.Evolve"
+var CurrentAliveCellsHandler = "GOLOperations.CurrentWorldState"
 
 type Response struct {
 	FinalBoard [][]byte

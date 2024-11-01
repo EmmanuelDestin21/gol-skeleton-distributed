@@ -8,25 +8,44 @@ import (
 	"time"
 )
 
-type GOLOperations struct{}
+type GOLOperations struct {
+	CurrentWorld [][]byte
+	CurrentTurn  *int
+}
 
 func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 	p := req.P
-	world := req.World
+	s.CurrentWorld = req.World
 
-	turn := 0
+	initialTurn := 0
+	s.CurrentTurn = &initialTurn
 
 	// Execute all turns of the Game of Life.
-	for turn < p.Turns {
-		world = calculateNextState(p, world)
-		turn++
+	for *s.CurrentTurn < p.Turns {
+		s.CurrentWorld = calculateNextState(p, s.CurrentWorld)
+		*s.CurrentTurn++
 	}
 
 	// Allow turn number and final board to be used by client
-	res.Turn = turn
-	res.FinalBoard = world
+	res.Turn = *s.CurrentTurn
+	res.FinalBoard = s.CurrentWorld
 
 	return
+}
+
+func (s *GOLOperations) CurrentWorldState(world [][]byte, res *Response) (err error) {
+	// Ensure FinalBoard is initialized before responding
+	// Remember to add mutex lock
+	if s.CurrentWorld == nil {
+		s.CurrentWorld = world
+	} else if s.CurrentTurn == nil {
+		initialTurn := 0
+		s.CurrentTurn = &initialTurn
+	}
+
+	res.FinalBoard = s.CurrentWorld
+	res.Turn = *s.CurrentTurn
+	return nil
 }
 
 func calculateNextState(p Params, world [][]byte) [][]byte {

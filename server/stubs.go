@@ -1,6 +1,7 @@
 package main
 
 var GOLHandler = "GOLOperations.Evolve"
+var CurrentAliveCellsHandler = "GOLOperations.CurrentWorldState"
 
 type Params struct {
 	Turns       int
