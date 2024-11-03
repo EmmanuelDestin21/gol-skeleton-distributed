@@ -83,7 +83,7 @@ func distributor(p Params, c distributorChannels) {
 	// client side code
 	var server string
 	if flag.Lookup("server") == nil {
-		serverPtr := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+		serverPtr := flag.String("server", "54.196.55.173:8030", "IP:port string to connect to as server")
 		flag.Parse()
 		server = *serverPtr
 	} else {
