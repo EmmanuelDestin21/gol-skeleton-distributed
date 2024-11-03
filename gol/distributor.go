@@ -2,7 +2,6 @@ package gol
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"net/rpc"
 	"strconv"
@@ -44,7 +43,6 @@ func getCurrentAliveCells(c distributorChannels, p Params, world [][]byte, clien
 		response := new(Response)
 		err := client.Call(CurrentAliveCellsHandler, world, response)
 		if err != nil {
-			fmt.Println("Error fetching world state:", err)
 			continue
 		}
 		// Process the current state
