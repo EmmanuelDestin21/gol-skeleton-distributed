@@ -5,7 +5,9 @@ import (
 	"math/rand"
 	"net"
 	"net/rpc"
+	"sync"
 	"time"
+	"uk.ac.bris.cs/gameoflife/util"
 )
 
 type GOLOperations struct {
@@ -13,17 +15,41 @@ type GOLOperations struct {
 	CurrentTurn  *int
 }
 
-func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
-	p := req.P
+var mutex sync.Mutex
+
+func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err error) {
 	s.CurrentWorld = req.World
 
 	initialTurn := 0
 	s.CurrentTurn = &initialTurn
 
+	return
+}
+
+func calculateAliveCells(p Params, world [][]byte) []util.Cell {
+	var aliveCells []util.Cell
+	IMHT := p.ImageHeight
+	IMWD := p.ImageWidth
+
+	for y := 0; y < IMHT; y++ {
+		for x := 0; x < IMWD; x++ {
+			if world[y][x] == 255 {
+				aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
+			}
+		}
+	}
+	return aliveCells
+}
+
+func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
+	p := req.P
+
 	// Execute all turns of the Game of Life.
 	for *s.CurrentTurn < p.Turns {
+		mutex.Lock()
 		s.CurrentWorld = calculateNextState(p, s.CurrentWorld)
 		*s.CurrentTurn++
+		mutex.Unlock()
 	}
 
 	// Allow turn number and final board to be used by client
@@ -34,17 +60,10 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 }
 
 func (s *GOLOperations) CurrentWorldState(world [][]byte, res *Response) (err error) {
-	// Ensure FinalBoard is initialized before responding
-	// Remember to add mutex lock
-	if s.CurrentWorld == nil {
-		s.CurrentWorld = world
-	} else if s.CurrentTurn == nil {
-		initialTurn := 0
-		s.CurrentTurn = &initialTurn
-	}
-
+	mutex.Lock()
 	res.FinalBoard = s.CurrentWorld
 	res.Turn = *s.CurrentTurn
+	mutex.Unlock()
 	return nil
 }
 

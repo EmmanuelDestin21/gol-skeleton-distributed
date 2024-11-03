@@ -2,6 +2,7 @@ package gol
 
 var GOLHandler = "GOLOperations.Evolve"
 var CurrentAliveCellsHandler = "GOLOperations.CurrentWorldState"
+var InitialiseBoardAndTurnHandler = "GOLOperations.InitialiseBoardAndTurn"
 
 type Response struct {
 	FinalBoard [][]byte

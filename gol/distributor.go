@@ -22,11 +22,15 @@ type distributorChannels struct {
 func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byte) *Response {
 	request := Request{P: p, World: world}
 	response := new(Response)
+	err1 := client.Call(InitialiseBoardAndTurnHandler, request, response)
+	if err1 != nil {
+		panic(err1)
+	}
 	go getCurrentAliveCells(c, p, world, client)
-	err := client.Call(GOLHandler, request, response)
+	err2 := client.Call(GOLHandler, request, response)
 
-	if err != nil {
-		panic(err)
+	if err2 != nil {
+		panic(err2)
 	}
 
 	return response
@@ -79,7 +83,7 @@ func distributor(p Params, c distributorChannels) {
 	// client side code
 	var server string
 	if flag.Lookup("server") == nil {
-		serverPtr := flag.String("server", "54.89.128.7:8030", "IP:port string to connect to as server")
+		serverPtr := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
 		flag.Parse()
 		server = *serverPtr
 	} else {
@@ -97,6 +101,17 @@ func distributor(p Params, c distributorChannels) {
 
 	// utilise the response
 	aliveCells := calculateAliveCells(p, response.FinalBoard)
+
+	// Send the filename to write the image in.
+	c.ioCommand <- ioOutput
+	c.ioFilename <- strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.Turns)
+
+	// Send the output world slice.
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			c.ioOutput <- response.FinalBoard[y][x]
+		}
+	}
 
 	// Report the final state using FinalTurnCompleteEvent.
 	FinalTurnCompleteEvent := FinalTurnComplete{response.Turn, aliveCells}
