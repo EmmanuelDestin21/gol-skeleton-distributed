@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"math/rand"
 	"net"
 	"net/rpc"
@@ -27,6 +28,7 @@ func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err 
 
 func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 	p := req.P
+	fmt.Println("Evolve has been called")
 
 	// Execute all turns of the Game of Life.
 	for *s.CurrentTurn < p.Turns {
