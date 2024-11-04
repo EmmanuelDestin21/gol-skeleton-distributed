@@ -45,7 +45,6 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 					}
 					filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, currentWorldStateResponse.Turn)
 					saveImage(p, c, currentWorldStateResponse.FinalBoard, filename)
-					fmt.Println()
 					c.events <- ImageOutputComplete{currentWorldStateResponse.Turn, filename}
 					keyPressMutex.Unlock()
 				//case 'q':
