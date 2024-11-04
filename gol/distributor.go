@@ -28,43 +28,48 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 	if err1 != nil {
 		panic(err1)
 	}
-	quit := false
+	//quit := false
 	paused := false
-	resumeSignal := make(chan bool)
 	go func() {
 		for {
 			select {
 			case key := <-keyPresses:
 				switch key {
 				case 's':
-					fmt.Println("Hello: S was pressed")
 					keyPressMutex.Lock()
+					req := new(EmptyRequest)
 					currentWorldStateResponse := new(Response)
-					fmt.Println("Hello before current world call")
-					client.Call(CurrentWorldStateHandler, nil, currentWorldStateResponse)
-					fmt.Println("Hello after current world call")
-					fmt.Println(currentWorldStateResponse.Turn)
-					fmt.Println(currentWorldStateResponse.FinalBoard)
+					err := client.Call(CurrentWorldStateHandler, req, currentWorldStateResponse)
+					if err != nil {
+						panic(err)
+					}
 					filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, currentWorldStateResponse.Turn)
 					saveImage(p, c, currentWorldStateResponse.FinalBoard, filename)
-					c.ioCommand <- ioCheckIdle
+					fmt.Println()
 					c.events <- ImageOutputComplete{currentWorldStateResponse.Turn, filename}
 					keyPressMutex.Unlock()
-				case 'q':
-					quit = true
-					if paused {
-						resumeSignal <- true
-					}
+				//case 'q':
+				//	quit = true
+				//	if paused {
+				//		resumeSignal <- true
+				//	}
 				case 'p':
-					fmt.Println("Hello: P was pressed")
+					req := new(EmptyRequest)
+					res := new(EmptyResponse)
+					err := client.Call(PauseHandler, req, res)
+					if err != nil {
+						panic(err)
+					}
 					currentWorldStateResponse := new(Response)
-					client.Call(CurrentWorldStateHandler, nil, currentWorldStateResponse)
-					paused = !paused
+					err2 := client.Call(CurrentWorldStateHandler, req, currentWorldStateResponse)
+					if err2 != nil {
+						panic(err2)
+					}
+					paused = currentWorldStateResponse.Paused
 					if paused {
-						c.events <- StateChange{currentWorldStateResponse.Turn, Paused}
+						fmt.Println(currentWorldStateResponse.Turn)
 					} else {
-						c.events <- StateChange{currentWorldStateResponse.Turn, Executing}
-						resumeSignal <- true
+						fmt.Println("Continuing")
 					}
 				}
 			}
@@ -86,8 +91,9 @@ func getCurrentAliveCells(c distributorChannels, p Params, world [][]byte, clien
 	defer ticker.Stop()
 
 	for range ticker.C {
+		req := new(EmptyRequest)
 		response := new(Response)
-		err := client.Call(CurrentWorldStateHandler, world, response)
+		err := client.Call(CurrentWorldStateHandler, req, response)
 		if err != nil {
 			continue
 		}
@@ -136,7 +142,7 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 	// client side code
 	var server string
 	if flag.Lookup("server") == nil {
-		serverPtr := flag.String("server", "54.197.213.188:8030", "IP:port string to connect to as server")
+		serverPtr := flag.String("server", "localhost:8030", "IP:port string to connect to as server")
 		flag.Parse()
 		server = *serverPtr
 	} else {
@@ -150,9 +156,9 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 
 	defer client.Close()
 
-	fmt.Println("Hello before makeCall")
+	c.events <- StateChange{0, Executing}
+
 	response := makeCall(client, c, p, world, keyPresses)
-	fmt.Println("Hello after makeCall goroutine")
 
 	// utilise the response
 	aliveCells := calculateAliveCells(p, response.FinalBoard)

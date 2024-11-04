@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"math/rand"
 	"net"
 	"net/rpc"
@@ -16,19 +15,33 @@ type GOLOperations struct {
 }
 
 var mutex sync.Mutex
+var pauseMutex sync.Mutex
+var pauseBool bool
+var resumeSignal chan bool
+var quitHappened = false
+var clientConnected = false
 
 func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err error) {
-	s.CurrentWorld = req.World
+	if quitHappened {
+		pauseBool = false
+		resumeSignal = make(chan bool)
+	} else {
+		s.CurrentWorld = req.World
+		initialTurn := 0
+		s.CurrentTurn = &initialTurn
+		pauseBool = false
+		resumeSignal = make(chan bool)
+	}
+	return
+}
 
-	initialTurn := 0
-	s.CurrentTurn = &initialTurn
-
+func (s *GOLOperations) Quit(req EmptyRequest, res *EmptyResponse) (err error) {
+	quitHappened = true
 	return
 }
 
 func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 	p := req.P
-	fmt.Println("Evolve has been called")
 
 	// Execute all turns of the Game of Life.
 	for *s.CurrentTurn < p.Turns {
@@ -36,6 +49,15 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 		s.CurrentWorld = calculateNextState(p, s.CurrentWorld)
 		*s.CurrentTurn++
 		mutex.Unlock()
+		pauseMutex.Lock()
+		if quitHappened {
+			return
+		} else if pauseBool {
+			pauseMutex.Unlock()
+			<-resumeSignal
+		} else {
+			pauseMutex.Unlock()
+		}
 	}
 
 	// Allow turn number and final board to be used by client
@@ -45,12 +67,23 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 	return
 }
 
-func (s *GOLOperations) CurrentWorldState(world [][]byte, res *Response) (err error) {
+func (s *GOLOperations) Pause(req EmptyRequest, res *EmptyResponse) (err error) {
+	pauseMutex.Lock()
+	pauseBool = !pauseBool
+	pauseMutex.Unlock()
+	if !pauseBool {
+		resumeSignal <- true
+	}
+	return
+}
+
+func (s *GOLOperations) CurrentWorldState(req EmptyRequest, res *Response) (err error) {
 	mutex.Lock()
 	res.FinalBoard = s.CurrentWorld
 	res.Turn = *s.CurrentTurn
+	res.Paused = pauseBool
 	mutex.Unlock()
-	return nil
+	return
 }
 
 func calculateNextState(p Params, world [][]byte) [][]byte {
