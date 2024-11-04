@@ -7,7 +7,6 @@ import (
 	"net/rpc"
 	"sync"
 	"time"
-	"uk.ac.bris.cs/gameoflife/util"
 )
 
 type GOLOperations struct {
@@ -24,21 +23,6 @@ func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err 
 	s.CurrentTurn = &initialTurn
 
 	return
-}
-
-func calculateAliveCells(p Params, world [][]byte) []util.Cell {
-	var aliveCells []util.Cell
-	IMHT := p.ImageHeight
-	IMWD := p.ImageWidth
-
-	for y := 0; y < IMHT; y++ {
-		for x := 0; x < IMWD; x++ {
-			if world[y][x] == 255 {
-				aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
-			}
-		}
-	}
-	return aliveCells
 }
 
 func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {

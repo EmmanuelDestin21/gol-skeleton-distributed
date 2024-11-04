@@ -2,9 +2,11 @@ package gol
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/rpc"
 	"strconv"
+	"sync"
 	"time"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -41,7 +43,7 @@ func getCurrentAliveCells(c distributorChannels, p Params, world [][]byte, clien
 
 	for range ticker.C {
 		response := new(Response)
-		err := client.Call(CurrentAliveCellsHandler, world, response)
+		err := client.Call(CurrentWorldStateHandler, world, response)
 		if err != nil {
 			continue
 		}
@@ -73,9 +75,19 @@ func createInitialBoard(p Params, c distributorChannels) [][]byte {
 	return world
 }
 
-// distributor divides the work between workers and interacts with other goroutines.
-func distributor(p Params, c distributorChannels) {
+func saveImage(p Params, c distributorChannels, world [][]byte, filename string) {
+	c.ioCommand <- ioOutput
+	c.ioFilename <- filename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			c.ioOutput <- world[y][x]
+		}
+	}
+}
 
+// distributor divides the work between workers and interacts with other goroutines.
+func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
+	var keyPressMutex sync.Mutex
 	world := createInitialBoard(p, c)
 
 	// client side code
@@ -94,6 +106,43 @@ func distributor(p Params, c distributorChannels) {
 	}
 
 	defer client.Close()
+
+	quit := false
+	paused := false
+	resumeSignal := make(chan bool)
+	go func() {
+		for {
+			select {
+			case key := <-keyPresses:
+				switch key {
+				case 's':
+					keyPressMutex.Lock()
+					currentWorldStateResponse := new(Response)
+					client.Call(CurrentWorldStateHandler, nil, currentWorldStateResponse)
+					filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, currentWorldStateResponse.Turn)
+					saveImage(p, c, currentWorldStateResponse.FinalBoard, filename)
+					c.ioCommand <- ioCheckIdle
+					c.events <- ImageOutputComplete{currentWorldStateResponse.Turn, filename}
+					keyPressMutex.Unlock()
+				case 'q':
+					quit = true
+					if paused {
+						resumeSignal <- true
+					}
+				case 'p':
+					currentWorldStateResponse := new(Response)
+					client.Call(CurrentWorldStateHandler, nil, currentWorldStateResponse)
+					paused = !paused
+					if paused {
+						c.events <- StateChange{currentWorldStateResponse.Turn, Paused}
+					} else {
+						c.events <- StateChange{currentWorldStateResponse.Turn, Executing}
+						resumeSignal <- true
+					}
+				}
+			}
+		}
+	}()
 
 	response := makeCall(client, c, p, world)
 
