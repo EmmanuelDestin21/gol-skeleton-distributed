@@ -73,6 +73,7 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 		pauseMutex.Lock()
 		if terminateHappened {
 			res.Terminated = true
+			<-terminateSignal
 			<-pausedTerminateSignal
 			pauseMutex.Unlock()
 			return
