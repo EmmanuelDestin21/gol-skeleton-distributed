@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"math/rand"
 	"net"
 	"net/rpc"
@@ -14,12 +15,19 @@ type GOLOperations struct {
 	CurrentTurn  *int
 }
 
-var mutex sync.Mutex
-var pauseMutex sync.Mutex
-var pauseBool bool
-var resumeSignal chan bool
-var quitHappened = false
-var clientConnected = false
+var (
+	mutex                 sync.Mutex
+	pauseMutex            sync.Mutex
+	pauseBool             bool
+	resumeSignal          chan bool
+	quitSignal            chan bool
+	terminateSignal       chan bool
+	pausedTerminateSignal chan bool
+	quitHappened          = false
+	terminateHappened     = false
+	clientConnected       = false
+	wg                    sync.WaitGroup
+)
 
 func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err error) {
 	if quitHappened {
@@ -30,13 +38,20 @@ func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err 
 		initialTurn := 0
 		s.CurrentTurn = &initialTurn
 		pauseBool = false
-		resumeSignal = make(chan bool)
 	}
 	return
 }
 
 func (s *GOLOperations) Quit(req EmptyRequest, res *EmptyResponse) (err error) {
 	quitHappened = true
+	quitSignal <- true
+	return
+}
+
+func (s *GOLOperations) Terminate(req EmptyRequest, res *EmptyResponse) (err error) {
+	terminateHappened = true
+	terminateSignal <- true
+	pausedTerminateSignal <- true
 	return
 }
 
@@ -50,11 +65,25 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 		*s.CurrentTurn++
 		mutex.Unlock()
 		pauseMutex.Lock()
-		if quitHappened {
+		if terminateHappened {
+			res.Terminated = true
+			return
+		} else if quitHappened {
+			res.Quit = true
+			<-quitSignal
 			return
 		} else if pauseBool {
 			pauseMutex.Unlock()
-			<-resumeSignal
+			select {
+			case <-resumeSignal:
+				continue
+			case <-quitSignal:
+				res.Quit = true
+				return
+			case <-pausedTerminateSignal:
+				res.Terminated = true
+				return
+			}
 		} else {
 			pauseMutex.Unlock()
 		}
@@ -127,12 +156,69 @@ func calculateNextState(p Params, world [][]byte) [][]byte {
 	return newWorld
 }
 
+func handleClientConnection(conn net.Conn, server *rpc.Server) {
+	clientConnected = true // Mark client as connected
+	defer func() {
+		fmt.Println("Client connection closed")
+		clientConnected = false // Mark client as disconnected when done
+		conn.Close()
+		wg.Done()
+	}()
+
+	// Serve the connected client.
+	server.ServeConn(conn)
+}
+
 func main() {
 	pAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
-	rpc.Register(&GOLOperations{})
-	listener, _ := net.Listen("tcp", ":"+*pAddr)
+
+	// Create an RPC server instance
+	server := rpc.NewServer()
+	server.Register(&GOLOperations{})
+
+	listener, err := net.Listen("tcp", ":"+*pAddr)
+	if err != nil {
+		panic(err)
+	}
 	defer listener.Close()
-	rpc.Accept(listener)
+
+	resumeSignal = make(chan bool)
+	quitSignal = make(chan bool)
+	terminateSignal = make(chan bool)
+	pausedTerminateSignal = make(chan bool)
+
+	// Channel to signal a new connection
+	connChan := make(chan net.Conn)
+	// Goroutine to handle accepting new connections
+	go func() {
+		for {
+			conn, _ := listener.Accept()
+			wg.Add(1)
+			connChan <- conn
+		}
+	}()
+
+	for {
+		select {
+		case <-terminateSignal:
+			// Gracefully shut down the server
+			fmt.Println("Waiting for client to shut down")
+			wg.Wait()
+			fmt.Println("Terminate signal received. Shutting down server...")
+			return
+		case conn := <-connChan:
+			// Check if a client is already connected
+			if clientConnected {
+				// Print error and close the connection
+				fmt.Println("A client is already connected. Rejecting new connection attempt.")
+				conn.Close()
+			} else {
+				// Handle client connection
+				fmt.Println("Client connected")
+				go handleClientConnection(conn, server)
+			}
+		}
+	}
 }

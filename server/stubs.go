@@ -5,6 +5,7 @@ var CurrentWorldStateHandler = "GOLOperations.CurrentWorldState"
 var InitialiseBoardAndTurnHandler = "GOLOperations.InitialiseBoardAndTurn"
 var PauseHandler = "GOLOperations.Pause"
 var QuitHandler = "GOLOperations.Quit"
+var TerminateHandler = "GOLOperations.Terminate"
 
 type Params struct {
 	Turns       int
@@ -17,6 +18,8 @@ type Response struct {
 	FinalBoard [][]byte
 	Turn       int
 	Paused     bool
+	Quit       bool
+	Terminated bool
 }
 
 type Request struct {

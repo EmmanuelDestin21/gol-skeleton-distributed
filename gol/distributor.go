@@ -28,7 +28,6 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 	if err1 != nil {
 		panic(err1)
 	}
-	//quit := false
 	paused := false
 	go func() {
 		for {
@@ -47,11 +46,34 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 					saveImage(p, c, currentWorldStateResponse.FinalBoard, filename)
 					c.events <- ImageOutputComplete{currentWorldStateResponse.Turn, filename}
 					keyPressMutex.Unlock()
-				//case 'q':
-				//	quit = true
-				//	if paused {
-				//		resumeSignal <- true
-				//	}
+				case 'q':
+					req := new(EmptyRequest)
+					res := new(EmptyResponse)
+					err := client.Call(QuitHandler, req, res)
+					if err != nil {
+						panic(err)
+					}
+					return
+				case 'k':
+					// outputs final pgm image and shuts both client and server
+					req := new(EmptyRequest)
+					currentWorldStateResponse := new(Response)
+					err := client.Call(CurrentWorldStateHandler, req, currentWorldStateResponse)
+					if err != nil {
+						panic(err)
+					}
+					// Dunno if this is what you're meant to do
+					filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, currentWorldStateResponse.Turn)
+					saveImage(p, c, currentWorldStateResponse.FinalBoard, filename)
+					c.events <- ImageOutputComplete{currentWorldStateResponse.Turn, filename}
+
+					req = new(EmptyRequest)
+					res := new(EmptyResponse)
+					err2 := client.Call(TerminateHandler, req, res)
+					if err2 != nil {
+						panic(err)
+					}
+					return
 				case 'p':
 					req := new(EmptyRequest)
 					res := new(EmptyResponse)
@@ -159,6 +181,14 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 
 	response := makeCall(client, c, p, world, keyPresses)
 
+	if response.Quit || response.Terminated {
+		req := new(EmptyRequest)
+		res := new(Response)
+		client.Call(CurrentWorldStateHandler, req, res)
+		c.events <- StateChange{res.Turn, Quitting}
+		close(c.events)
+		return
+	}
 	// utilise the response
 	aliveCells := calculateAliveCells(p, response.FinalBoard)
 
