@@ -70,9 +70,6 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 					req = new(EmptyRequest)
 					res := new(EmptyResponse)
 					client.Call(TerminateHandler, req, res)
-					fmt.Println()
-					fmt.Println("Hello")
-					fmt.Println()
 					return
 				case 'p':
 					req := new(EmptyRequest)

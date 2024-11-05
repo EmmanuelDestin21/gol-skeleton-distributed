@@ -22,7 +22,7 @@ var (
 	resumeSignal          chan bool
 	quitSignal            chan bool
 	terminateSignal       chan bool
-	pausedTerminateSignal chan bool
+	terminateServerSignal chan bool
 	quitHappened          = false
 	terminateHappened     = false
 	clientConnected       = false
@@ -31,10 +31,6 @@ var (
 
 func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err error) {
 	if quitHappened {
-		resumeSignal = make(chan bool)
-		quitSignal = make(chan bool)
-		terminateSignal = make(chan bool)
-		pausedTerminateSignal = make(chan bool)
 		pauseBool = false
 		quitHappened = false
 		terminateHappened = false
@@ -55,9 +51,12 @@ func (s *GOLOperations) Quit(req EmptyRequest, res *EmptyResponse) (err error) {
 }
 
 func (s *GOLOperations) Terminate(req EmptyRequest, res *EmptyResponse) (err error) {
+	fmt.Println("Line 58")
 	terminateHappened = true
 	terminateSignal <- true
-	pausedTerminateSignal <- true
+	fmt.Println("Line 61")
+	terminateServerSignal <- true
+	fmt.Println("Line 62")
 	return
 }
 
@@ -72,9 +71,10 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 		mutex.Unlock()
 		pauseMutex.Lock()
 		if terminateHappened {
+			fmt.Println("Line 78")
 			res.Terminated = true
 			<-terminateSignal
-			<-pausedTerminateSignal
+			fmt.Println("Line 80")
 			pauseMutex.Unlock()
 			return
 		} else if quitHappened {
@@ -90,7 +90,7 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 			case <-quitSignal:
 				res.Quit = true
 				return
-			case <-pausedTerminateSignal:
+			case <-terminateSignal:
 				res.Terminated = true
 				return
 			}
@@ -197,7 +197,7 @@ func main() {
 	resumeSignal = make(chan bool)
 	quitSignal = make(chan bool)
 	terminateSignal = make(chan bool)
-	pausedTerminateSignal = make(chan bool)
+	terminateServerSignal = make(chan bool)
 
 	// Channel to signal a new connection
 	connChan := make(chan net.Conn)
@@ -212,14 +212,13 @@ func main() {
 
 	for {
 		select {
-		case <-terminateSignal:
+		case <-terminateServerSignal:
 			// Gracefully shut down the server
 			fmt.Println("Waiting for client to shut down")
 			wg.Wait()
 			fmt.Println("Terminate signal received. Shutting down server...")
 			return
 		case conn := <-connChan:
-			fmt.Println("Setting up new client, one already connected: ", clientConnected)
 			// Check if a client is already connected
 			if clientConnected {
 				// Print error and close the connection
@@ -228,7 +227,7 @@ func main() {
 			} else {
 				// Handle client connection
 				fmt.Println("Client connected")
-				handleClientConnection(conn, server)
+				go handleClientConnection(conn, server)
 			}
 		}
 	}
