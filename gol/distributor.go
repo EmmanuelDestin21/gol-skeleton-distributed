@@ -69,10 +69,7 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 
 					req = new(EmptyRequest)
 					res := new(EmptyResponse)
-					err2 := client.Call(TerminateHandler, req, res)
-					if err2 != nil {
-						panic(err)
-					}
+					client.Call(TerminateHandler, req, res)
 					return
 				case 'p':
 					req := new(EmptyRequest)
