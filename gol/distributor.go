@@ -44,6 +44,8 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 					}
 					filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, currentWorldStateResponse.Turn)
 					saveImage(p, c, currentWorldStateResponse.FinalBoard, filename)
+					c.ioCommand <- ioCheckIdle
+					<-c.ioIdle
 					c.events <- ImageOutputComplete{currentWorldStateResponse.Turn, filename}
 					keyPressMutex.Unlock()
 				case 'q':
@@ -53,6 +55,9 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 					if err != nil {
 						panic(err)
 					}
+					fmt.Println()
+					fmt.Println()
+
 					return
 				case 'k':
 					// outputs final pgm image and shuts both client and server
@@ -62,11 +67,6 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 					if err != nil {
 						panic(err)
 					}
-					// Dunno if this is what you're meant to do
-					filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, currentWorldStateResponse.Turn)
-					saveImage(p, c, currentWorldStateResponse.FinalBoard, filename)
-					c.events <- ImageOutputComplete{currentWorldStateResponse.Turn, filename}
-
 					req = new(EmptyRequest)
 					res := new(EmptyResponse)
 					client.Call(TerminateHandler, req, res)
@@ -74,20 +74,30 @@ func makeCall(client *rpc.Client, c distributorChannels, p Params, world [][]byt
 				case 'p':
 					req := new(EmptyRequest)
 					res := new(EmptyResponse)
-					err := client.Call(PauseHandler, req, res)
-					if err != nil {
-						panic(err)
-					}
 					currentWorldStateResponse := new(Response)
 					err2 := client.Call(CurrentWorldStateHandler, req, currentWorldStateResponse)
 					if err2 != nil {
 						panic(err2)
 					}
 					paused = currentWorldStateResponse.Paused
-					if paused {
+					if !paused {
+						err := client.Call(PauseHandler, req, res)
+						if err != nil {
+							panic(err)
+						}
+						err2 := client.Call(CurrentWorldStateHandler, req, currentWorldStateResponse)
+						if err2 != nil {
+							panic(err2)
+						}
+						c.events <- StateChange{currentWorldStateResponse.Turn, Paused}
 						fmt.Println(currentWorldStateResponse.Turn)
 					} else {
+						c.events <- StateChange{currentWorldStateResponse.Turn, Executing}
 						fmt.Println("Continuing")
+						err := client.Call(PauseHandler, req, res)
+						if err != nil {
+							panic(err)
+						}
 					}
 				}
 			}
@@ -182,6 +192,12 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 		req := new(EmptyRequest)
 		res := new(Response)
 		client.Call(CurrentWorldStateHandler, req, res)
+		// Don't know if this is what you're meant to do for 'k', instructions not clear, asked TA who said it is
+		filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, res.Turn)
+		saveImage(p, c, res.FinalBoard, filename)
+		c.ioCommand <- ioCheckIdle
+		<-c.ioIdle
+		c.events <- ImageOutputComplete{res.Turn, filename}
 		c.events <- StateChange{res.Turn, Quitting}
 		close(c.events)
 		return

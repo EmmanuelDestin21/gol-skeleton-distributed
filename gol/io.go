@@ -139,7 +139,6 @@ func startIo(p Params, c ioChannels) {
 		case ioOutput:
 			io.writePgmImage()
 		case ioCheckIdle:
-			fmt.Println("Check idle")
 			io.channels.idle <- true
 		}
 	}

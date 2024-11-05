@@ -31,14 +31,20 @@ var (
 
 func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err error) {
 	if quitHappened {
-		pauseBool = false
 		resumeSignal = make(chan bool)
+		quitSignal = make(chan bool)
+		terminateSignal = make(chan bool)
+		pausedTerminateSignal = make(chan bool)
+		pauseBool = false
+		quitHappened = false
+		terminateHappened = false
 	} else {
 		s.CurrentWorld = req.World
 		initialTurn := 0
 		s.CurrentTurn = &initialTurn
 		pauseBool = false
 	}
+
 	return
 }
 
@@ -68,10 +74,12 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 		if terminateHappened {
 			res.Terminated = true
 			<-pausedTerminateSignal
+			pauseMutex.Unlock()
 			return
 		} else if quitHappened {
 			res.Quit = true
 			<-quitSignal
+			pauseMutex.Unlock()
 			return
 		} else if pauseBool {
 			pauseMutex.Unlock()
@@ -210,6 +218,7 @@ func main() {
 			fmt.Println("Terminate signal received. Shutting down server...")
 			return
 		case conn := <-connChan:
+			fmt.Println("Setting up new client, one already connected: ", clientConnected)
 			// Check if a client is already connected
 			if clientConnected {
 				// Print error and close the connection
@@ -218,7 +227,7 @@ func main() {
 			} else {
 				// Handle client connection
 				fmt.Println("Client connected")
-				go handleClientConnection(conn, server)
+				handleClientConnection(conn, server)
 			}
 		}
 	}
