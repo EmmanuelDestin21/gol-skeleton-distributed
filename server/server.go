@@ -51,12 +51,9 @@ func (s *GOLOperations) Quit(req EmptyRequest, res *EmptyResponse) (err error) {
 }
 
 func (s *GOLOperations) Terminate(req EmptyRequest, res *EmptyResponse) (err error) {
-	fmt.Println("Line 58")
 	terminateHappened = true
 	terminateSignal <- true
-	fmt.Println("Line 61")
 	terminateServerSignal <- true
-	fmt.Println("Line 62")
 	return
 }
 
@@ -71,10 +68,8 @@ func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
 		mutex.Unlock()
 		pauseMutex.Lock()
 		if terminateHappened {
-			fmt.Println("Line 78")
 			res.Terminated = true
 			<-terminateSignal
-			fmt.Println("Line 80")
 			pauseMutex.Unlock()
 			return
 		} else if quitHappened {
