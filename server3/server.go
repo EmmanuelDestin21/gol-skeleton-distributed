@@ -96,7 +96,7 @@ func handleClientConnection(conn net.Conn, server *rpc.Server) {
 }
 
 func main() {
-	pAddr := flag.String("port", "8050", "Port to listen on")
+	pAddr := flag.String("port", "8070", "Port to listen on")
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
 

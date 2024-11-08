@@ -128,7 +128,7 @@ func getCurrentAliveCells(c distributorChannels, p Params, world [][]byte, broke
 		res := new(TickerResponse)
 		req := Request{P: p, World: world}
 		broker.Call(ReportAliveCellsHandler, req, res)
-		aliveCells := res.aliveCells
+		aliveCells := res.AliveCells
 		AliveCellsCountEvent := AliveCellsCount{response.Turn, len(aliveCells)}
 		c.events <- AliveCellsCountEvent
 	}
@@ -207,7 +207,7 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 	// utilise the response
 	res := new(TickerResponse)
 	broker.Call(ReportAliveCellsHandler, new(EmptyRequest), res)
-	aliveCells := res.aliveCells
+	aliveCells := res.AliveCells
 
 	// Send the filename to write the image in.
 	c.ioCommand <- ioOutput

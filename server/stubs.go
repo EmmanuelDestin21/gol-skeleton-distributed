@@ -3,16 +3,15 @@ package main
 import "uk.ac.bris.cs/gameoflife/util"
 
 var (
-	GOLHandler                = "GOLOperations.Evolve"
-	CurrentWorldStateHandler  = "GOLOperations.CurrentWorldState"
 	CalculateNextStateHandler = "GOLOperations.CalculateNextState"
 
-	ReceiveServerAddressHandler   = "Broker.ReceiveServerAddress"
+	CurrentWorldStateHandler      = "Broker.CurrentWorldState"
 	InitialiseBoardAndTurnHandler = "Broker.InitialiseBoardAndTurn"
 	ReportAliveCellsHandler       = "Broker.ReportAliveCells"
 	PauseHandler                  = "Broker.Pause"
 	QuitHandler                   = "Broker.Quit"
 	TerminateHandler              = "Broker.Terminate"
+	GOLHandler                    = "Broker.Evolve"
 )
 
 type Params struct {
@@ -31,9 +30,10 @@ type Response struct {
 }
 
 type Request struct {
-	P     Params
-	World [][]byte
-}
+	P            Params
+	World        [][]byte
+	ServerNumber int
+} //gameboard
 
 type EmptyResponse struct {
 }
@@ -42,15 +42,15 @@ type EmptyRequest struct {
 }
 
 type TickerResponse struct {
-	aliveCells []util.Cell
-}
-
-type ServerSliceResponse struct {
-	Slice [][]byte
+	AliveCells []util.Cell
 }
 
 type KeyPressed struct {
 	Key rune
+}
+
+type ServerSliceResponse struct {
+	Slice [][]byte
 }
 
 type ServerAddress struct {

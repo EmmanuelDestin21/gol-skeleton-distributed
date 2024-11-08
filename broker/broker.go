@@ -19,10 +19,13 @@ type Broker struct {
 }
 
 var (
-	serverClients         = make([]*rpc.Client, 4)
-	allServersConnected   = make(chan bool)
-	serverMutex           *sync.Mutex
-	evolveMutex           *sync.Mutex
+	server1               *rpc.Client
+	server2               *rpc.Client
+	server3               *rpc.Client
+	server4               *rpc.Client
+	allServers            []*rpc.Client
+	serverMutex           sync.Mutex
+	evolveMutex           sync.Mutex
 	pauseMutex            sync.Mutex
 	pauseBool             bool
 	resumeSignal          chan bool
@@ -44,17 +47,21 @@ func main() {
 	flag.Parse()
 
 	// Create an RPC broker instance
-	//broker := rpc.NewServer()
-	//broker.Register(&Broker{})
-	broker := Broker{}
-	rpc.Register(&broker)
+	broker := rpc.NewServer()
+	err := broker.Register(&Broker{})
+	if err != nil {
+		panic(err)
+	}
 
 	addresses := strings.Fields(*serverAddresses)
-
-	dialServerAddresses(addresses)
-
-	fmt.Println("Line 77")
-	<-allServersConnected
+	// dial all servers
+	for i, addr := range addresses {
+		server, err := rpc.Dial("tcp", addr)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to dial server %d: %v", i+1, err))
+		}
+		allServers = append(allServers, server)
+	}
 	fmt.Println("All servers connected")
 
 	clientListener, err := net.Listen("tcp", ":"+*pClientAddr)
@@ -74,7 +81,10 @@ func main() {
 	// Goroutine to handle accepting new connections
 	go func() {
 		for {
-			conn, _ := clientListener.Accept()
+			conn, err := clientListener.Accept()
+			if err != nil {
+				panic(err)
+			}
 			wg.Add(1)
 			connChan <- conn
 		}
@@ -86,7 +96,7 @@ func main() {
 			// Gracefully shut down the server
 			fmt.Println("Waiting for client to shut down")
 			wg.Wait()
-			for _, server := range serverClients {
+			for _, server := range allServers {
 				err := server.Call(TerminateHandler, new(EmptyRequest), new(EmptyResponse))
 				if err != nil {
 					log.Fatal(err)
@@ -103,7 +113,7 @@ func main() {
 			} else {
 				// Handle client connection
 				fmt.Println("Client connected")
-				//go handleClientConnection(conn, broker)
+				go handleClientConnection(conn, broker)
 			}
 		}
 	}
@@ -120,24 +130,6 @@ func handleClientConnection(conn net.Conn, server *rpc.Server) {
 
 	// Serve the connected client.
 	server.ServeConn(conn)
-}
-
-func dialServerAddresses(serverAddresses []string) {
-	for i, serverAddress := range serverAddresses {
-		client, err := rpc.Dial("tcp", serverAddress)
-		if err != nil {
-			panic(err)
-		}
-		serverClients = append(serverClients, client)
-		defer client.Close()
-		fmt.Println("dial server address loop: ", i)
-	}
-	if len(serverClients) == 4 {
-		allServersConnected <- true
-	} else {
-		log.Fatal("All 4 servers have not been connected")
-	}
-	return
 }
 
 func calculateAliveCells(p Params, world [][]byte) []util.Cell {
@@ -157,7 +149,7 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 
 func (b *Broker) ReportAliveCells(req Request, res *TickerResponse) (err error) {
 	serverMutex.Lock()
-	res.aliveCells = calculateAliveCells(req.P, b.CurrentWorld)
+	res.AliveCells = calculateAliveCells(req.P, b.CurrentWorld)
 	serverMutex.Unlock()
 	return
 }
@@ -239,9 +231,10 @@ func (b *Broker) Evolve(req Request, res *Response) (err error) {
 	for *b.CurrentTurn < p.Turns {
 		evolveMutex.Lock()
 		// send work to servers
-		for i, server := range serverClients {
+		for i, server := range allServers {
 			go sendWork(p, b.CurrentWorld, resultsChannel[i], server)
 		}
+
 		b.CurrentWorld = assembleNewWorld(resultsChannel, p)
 		*b.CurrentTurn++
 		evolveMutex.Unlock()
