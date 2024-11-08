@@ -1,4 +1,4 @@
-package gol
+package main
 
 import "uk.ac.bris.cs/gameoflife/util"
 
@@ -15,6 +15,13 @@ var (
 	TerminateHandler              = "Broker.Terminate"
 )
 
+type Params struct {
+	Turns       int
+	Threads     int
+	ImageWidth  int
+	ImageHeight int
+}
+
 type Response struct {
 	FinalBoard [][]byte
 	Turn       int
@@ -26,7 +33,7 @@ type Response struct {
 type Request struct {
 	P     Params
 	World [][]byte
-}
+} //gameboard
 
 type EmptyResponse struct {
 }
@@ -38,12 +45,12 @@ type TickerResponse struct {
 	aliveCells []util.Cell
 }
 
-type ServerSliceResponse struct {
-	Slice [][]byte
-}
-
 type KeyPressed struct {
 	Key rune
+}
+
+type ServerSliceResponse struct {
+	Slice [][]byte
 }
 
 type ServerAddress struct {

@@ -1,11 +1,19 @@
 package main
 
-var GOLHandler = "GOLOperations.Evolve"
-var CurrentWorldStateHandler = "GOLOperations.CurrentWorldState"
-var InitialiseBoardAndTurnHandler = "GOLOperations.InitialiseBoardAndTurn"
-var PauseHandler = "GOLOperations.Pause"
-var QuitHandler = "GOLOperations.Quit"
-var TerminateHandler = "GOLOperations.Terminate"
+import "uk.ac.bris.cs/gameoflife/util"
+
+var (
+	GOLHandler                = "GOLOperations.Evolve"
+	CurrentWorldStateHandler  = "GOLOperations.CurrentWorldState"
+	CalculateNextStateHandler = "GOLOperations.CalculateNextState"
+
+	ReceiveServerAddressHandler   = "Broker.ReceiveServerAddress"
+	InitialiseBoardAndTurnHandler = "Broker.InitialiseBoardAndTurn"
+	ReportAliveCellsHandler       = "Broker.ReportAliveCells"
+	PauseHandler                  = "Broker.Pause"
+	QuitHandler                   = "Broker.Quit"
+	TerminateHandler              = "Broker.Terminate"
+)
 
 type Params struct {
 	Turns       int
@@ -31,4 +39,24 @@ type EmptyResponse struct {
 }
 
 type EmptyRequest struct {
+}
+
+type TickerResponse struct {
+	aliveCells []util.Cell
+}
+
+type ServerSliceResponse struct {
+	Slice [][]byte
+}
+
+type KeyPressed struct {
+	Key rune
+}
+
+type ServerAddress struct {
+	Address string
+}
+
+type Test struct {
+	Worked bool
 }

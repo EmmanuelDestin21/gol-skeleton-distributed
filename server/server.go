@@ -16,144 +16,61 @@ type GOLOperations struct {
 }
 
 var (
-	mutex                 sync.Mutex
-	pauseMutex            sync.Mutex
-	pauseBool             bool
-	resumeSignal          chan bool
-	quitSignal            chan bool
-	terminateSignal       chan bool
 	terminateServerSignal chan bool
-	quitHappened          = false
-	terminateHappened     = false
 	clientConnected       = false
 	wg                    sync.WaitGroup
+	numberOfServers       = 4
 )
 
-func (s *GOLOperations) InitialiseBoardAndTurn(req Request, res *Response) (err error) {
-	if quitHappened {
-		pauseBool = false
-		quitHappened = false
-		terminateHappened = false
-	} else {
-		s.CurrentWorld = req.World
-		initialTurn := 0
-		s.CurrentTurn = &initialTurn
-		pauseBool = false
-	}
-
-	return
-}
-
-func (s *GOLOperations) Quit(req EmptyRequest, res *EmptyResponse) (err error) {
-	quitHappened = true
-	quitSignal <- true
-	return
-}
-
 func (s *GOLOperations) Terminate(req EmptyRequest, res *EmptyResponse) (err error) {
-	terminateHappened = true
-	terminateSignal <- true
 	terminateServerSignal <- true
 	return
 }
 
-func (s *GOLOperations) Evolve(req Request, res *Response) (err error) {
-	p := req.P
-
-	// Execute all turns of the Game of Life.
-	for *s.CurrentTurn < p.Turns {
-		mutex.Lock()
-		s.CurrentWorld = calculateNextState(p, s.CurrentWorld)
-		*s.CurrentTurn++
-		mutex.Unlock()
-		pauseMutex.Lock()
-		if terminateHappened {
-			res.Terminated = true
-			<-terminateSignal
-			pauseMutex.Unlock()
-			return
-		} else if quitHappened {
-			res.Quit = true
-			<-quitSignal
-			pauseMutex.Unlock()
-			return
-		} else if pauseBool {
-			pauseMutex.Unlock()
-			select {
-			case <-resumeSignal:
-				continue
-			case <-quitSignal:
-				res.Quit = true
-				return
-			case <-terminateSignal:
-				res.Terminated = true
-				return
-			}
-		} else {
-			pauseMutex.Unlock()
-		}
+func (s *GOLOperations) calculateNextState(p Params, world [][]byte, serverNumber int) [][]byte {
+	workerHeight := p.ImageHeight / numberOfServers
+	startHeight := serverNumber * workerHeight
+	endHeight := (serverNumber + 1) * workerHeight
+	if serverNumber == numberOfServers-1 {
+		endHeight += p.ImageHeight % numberOfServers
 	}
-
-	// Allow turn number and final board to be used by client
-	res.Turn = *s.CurrentTurn
-	res.FinalBoard = s.CurrentWorld
-
-	return
-}
-
-func (s *GOLOperations) Pause(req EmptyRequest, res *EmptyResponse) (err error) {
-	pauseMutex.Lock()
-	pauseBool = !pauseBool
-	pauseMutex.Unlock()
-	if !pauseBool {
-		resumeSignal <- true
-	}
-	return
-}
-
-func (s *GOLOperations) CurrentWorldState(req EmptyRequest, res *Response) (err error) {
-	mutex.Lock()
-	res.FinalBoard = s.CurrentWorld
-	res.Turn = *s.CurrentTurn
-	res.Paused = pauseBool
-	mutex.Unlock()
-	return
-}
-
-func calculateNextState(p Params, world [][]byte) [][]byte {
-	newWorld := make([][]byte, p.ImageHeight)
-	for i := range newWorld {
-		newWorld[i] = make([]byte, p.ImageWidth)
-	}
-
-	IMHT := p.ImageHeight
 	IMWD := p.ImageWidth
 
-	for y := 0; y < IMHT; y++ {
+	newWorld := make([][]byte, endHeight-startHeight)
+	for i := range newWorld {
+		newWorld[i] = make([]byte, IMWD)
+	}
+
+	for y := startHeight; y < endHeight; y++ {
 		for x := 0; x < IMWD; x++ {
 			// Calculate sum of 8 neighbors
-			sum := int(world[(y+IMHT-1)%IMHT][(x+IMWD-1)%IMWD]/255) +
-				int(world[(y+IMHT-1)%IMHT][(x+IMWD)%IMWD]/255) +
-				int(world[(y+IMHT-1)%IMHT][(x+IMWD+1)%IMWD]/255) +
-				int(world[(y+IMHT)%IMHT][(x+IMWD-1)%IMWD]/255) +
-				int(world[(y+IMHT)%IMHT][(x+IMWD+1)%IMWD]/255) +
-				int(world[(y+IMHT+1)%IMHT][(x+IMWD-1)%IMWD]/255) +
-				int(world[(y+IMHT+1)%IMHT][(x+IMWD)%IMWD]/255) +
-				int(world[(y+IMHT+1)%IMHT][(x+IMWD+1)%IMWD]/255)
+			up := (y - 1 + p.ImageHeight) % p.ImageHeight
+			left := (x - 1 + p.ImageWidth) % p.ImageWidth
+			right := (x + 1) % p.ImageWidth
+			down := (y + 1) % p.ImageHeight
+
+			sum := int(world[up][left]) +
+				int(world[up][x]) +
+				int(world[up][right]) +
+				int(world[y][left]) +
+				int(world[y][right]) +
+				int(world[down][left]) +
+				int(world[down][x]) +
+				int(world[down][right])
 
 			if world[y][x] == 255 {
 				// Cell is alive
-				if sum < 2 || sum > 3 {
-					newWorld[y][x] = 0 // Underpopulation or overpopulation: cell dies
+				if sum < 2*255 || sum > 3*255 {
+					newWorld[y-startHeight][x] = 0 // Underpopulation or overpopulation: cell dies
 				} else {
-					newWorld[y][x] = 255 // Cell survives
+					newWorld[y-startHeight][x] = 255 // Cell survives
 				}
 			} else {
 				// Cell is dead
-				if sum == 3 {
-					newWorld[y][x] = 255 // Reproduction: cell becomes alive
+				if sum == 3*255 {
+					newWorld[y-startHeight][x] = 255 // Reproduction: cell becomes alive
 				} else {
-					newWorld[y][x] = 0 // Cell remains dead
+					newWorld[y-startHeight][x] = 0 // Cell remains dead
 				}
 			}
 		}
@@ -175,7 +92,7 @@ func handleClientConnection(conn net.Conn, server *rpc.Server) {
 }
 
 func main() {
-	pAddr := flag.String("port", "8030", "Port to listen on")
+	pAddr := flag.String("port", "8050", "Port to listen on")
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
 
@@ -188,11 +105,6 @@ func main() {
 		panic(err)
 	}
 	defer listener.Close()
-
-	resumeSignal = make(chan bool)
-	quitSignal = make(chan bool)
-	terminateSignal = make(chan bool)
-	terminateServerSignal = make(chan bool)
 
 	// Channel to signal a new connection
 	connChan := make(chan net.Conn)
