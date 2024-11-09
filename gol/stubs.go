@@ -4,13 +4,14 @@ import "uk.ac.bris.cs/gameoflife/util"
 
 var (
 	CalculateNextStateHandler = "GOLOperations.CalculateNextState"
+	TerminateServerHandler    = "GOLOperations.Terminate"
 
 	CurrentWorldStateHandler      = "Broker.CurrentWorldState"
 	InitialiseBoardAndTurnHandler = "Broker.InitialiseBoardAndTurn"
 	ReportAliveCellsHandler       = "Broker.ReportAliveCells"
 	PauseHandler                  = "Broker.Pause"
 	QuitHandler                   = "Broker.Quit"
-	TerminateHandler              = "Broker.Terminate"
+	TerminateBrokerHandler        = "Broker.Terminate"
 	GOLHandler                    = "Broker.Evolve"
 )
 
@@ -36,6 +37,7 @@ type EmptyRequest struct {
 
 type TickerResponse struct {
 	AliveCells []util.Cell
+	Turn       int
 }
 
 type KeyPressed struct {

@@ -14,29 +14,26 @@ import (
 )
 
 type Broker struct {
-	CurrentWorld [][]byte
-	CurrentTurn  *int
 }
 
 var (
-	server1               *rpc.Client
-	server2               *rpc.Client
-	server3               *rpc.Client
-	server4               *rpc.Client
-	allServers            []*rpc.Client
-	serverMutex           sync.Mutex
-	evolveMutex           sync.Mutex
-	pauseMutex            sync.Mutex
-	pauseBool             bool
-	resumeSignal          chan bool
-	quitSignal            chan bool
-	terminateSignal       chan bool
-	terminateServerSignal chan bool
-	quitHappened          = false
-	terminateHappened     = false
-	clientConnected       = false
-	wg                    sync.WaitGroup
-	numberOfServers       = 4
+	currentWorld            [][]byte
+	currentTurn             int
+	imageWidth, imageHeight int
+	allServers              []*rpc.Client
+	evolveMutex             sync.Mutex
+	pauseMutex              sync.Mutex
+	clientConnectionMutex   sync.Mutex
+	pauseBool               bool
+	resumeSignal            chan bool
+	quitSignal              chan bool
+	terminateSignal         chan bool
+	terminateBrokerSignal   chan bool
+	quitHappened            = false
+	terminateHappened       = false
+	clientConnected         = false
+	wg                      sync.WaitGroup
+	numberOfServers         = 4
 )
 
 func main() {
@@ -74,72 +71,63 @@ func main() {
 	resumeSignal = make(chan bool)
 	quitSignal = make(chan bool)
 	terminateSignal = make(chan bool)
-	terminateServerSignal = make(chan bool)
+	terminateBrokerSignal = make(chan bool)
 
 	// Channel to signal a new connection
 	connChan := make(chan net.Conn)
 	// Goroutine to handle accepting new connections
 	go func() {
 		for {
-			conn, err := clientListener.Accept()
-			if err != nil {
-				panic(err)
-			}
-			wg.Add(1)
+			conn, _ := clientListener.Accept()
 			connChan <- conn
 		}
 	}()
 
 	for {
 		select {
-		case <-terminateServerSignal:
+		case <-terminateBrokerSignal:
 			// Gracefully shut down the server
 			fmt.Println("Waiting for client to shut down")
 			wg.Wait()
 			for _, server := range allServers {
-				err := server.Call(TerminateHandler, new(EmptyRequest), new(EmptyResponse))
+				err := server.Call(TerminateServerHandler, new(EmptyRequest), new(EmptyResponse))
 				if err != nil {
 					log.Fatal(err)
 				}
 			}
 			fmt.Println("Terminate signal received. Shutting down server...")
 			return
-		case conn := <-connChan:
-			// Check if a client is already connected
-			if clientConnected {
-				// Print error and close the connection
-				fmt.Println("A client is already connected. Rejecting new connection attempt.")
-				conn.Close()
-			} else {
-				// Handle client connection
-				fmt.Println("Client connected")
-				go handleClientConnection(conn, broker)
-			}
+		case connection := <-connChan:
+			go handleClientConnection(connection, broker)
 		}
 	}
 }
 
-func handleClientConnection(conn net.Conn, server *rpc.Server) {
+func handleClientConnection(connection net.Conn, server *rpc.Server) {
+	if clientConnected {
+		fmt.Println("A client is already connected. Waiting for space.")
+	}
+	clientConnectionMutex.Lock()
+	wg.Add(1)
 	clientConnected = true // Mark client as connected
 	defer func() {
 		fmt.Println("Client connection closed")
 		clientConnected = false // Mark client as disconnected when done
-		conn.Close()
+		connection.Close()
 		wg.Done()
+		clientConnectionMutex.Unlock()
 	}()
-
 	// Serve the connected client.
-	server.ServeConn(conn)
+	server.ServeConn(connection)
+	fmt.Println("Client connected")
 }
 
-func calculateAliveCells(p Params, world [][]byte) []util.Cell {
+func calculateAliveCells() []util.Cell {
 	var aliveCells []util.Cell
-	IMHT := p.ImageHeight
-	IMWD := p.ImageWidth
 
-	for y := 0; y < IMHT; y++ {
-		for x := 0; x < IMWD; x++ {
-			if world[y][x] == 255 {
+	for y := 0; y < imageHeight; y++ {
+		for x := 0; x < imageWidth; x++ {
+			if currentWorld[y][x] == 255 {
 				aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
 			}
 		}
@@ -147,39 +135,49 @@ func calculateAliveCells(p Params, world [][]byte) []util.Cell {
 	return aliveCells
 }
 
-func (b *Broker) ReportAliveCells(req Request, res *TickerResponse) (err error) {
-	serverMutex.Lock()
-	res.AliveCells = calculateAliveCells(req.P, b.CurrentWorld)
-	serverMutex.Unlock()
+func (b *Broker) ReportAliveCells(req EmptyRequest, res *TickerResponse) (err error) {
+	evolveMutex.Lock()
+	res.AliveCells = calculateAliveCells()
+	res.Turn = currentTurn
+	evolveMutex.Unlock()
 	return
 }
 
-func (b *Broker) InitialiseBoardAndTurn(req Request, res *Response) (err error) {
-	if quitHappened {
-		pauseBool = false
-		quitHappened = false
-		terminateHappened = false
-	} else {
-		b.CurrentWorld = req.World
-		initialTurn := 0
-		b.CurrentTurn = &initialTurn
-		pauseBool = false
-	}
-
+func (b *Broker) InitialiseBoardAndTurn(req Request, res *EmptyResponse) (err error) {
+	//if quitHappened {
+	//	pauseBool = false
+	//	quitHappened = false
+	//	terminateHappened = false
+	//} else {
+	//	pauseBool = false
+	//	quitHappened = false
+	//	terminateHappened = false
+	//	currentWorld = req.World
+	//	currentTurn = 0
+	//	imageWidth = req.P.ImageWidth
+	//	imageHeight = req.P.ImageHeight
+	//}
+	pauseBool = false
+	quitHappened = false
+	terminateHappened = false
+	currentWorld = req.World
+	currentTurn = 0
+	imageWidth = req.P.ImageWidth
+	imageHeight = req.P.ImageHeight
 	return
 }
 
 func (b *Broker) CurrentWorldState(req EmptyRequest, res *Response) (err error) {
-	serverMutex.Lock()
-	res.FinalBoard = b.CurrentWorld
-	res.Turn = *b.CurrentTurn
+	evolveMutex.Lock()
+	res.FinalBoard = currentWorld
+	res.Turn = currentTurn
 	res.Paused = pauseBool
-	serverMutex.Unlock()
+	evolveMutex.Unlock()
 	return
 }
 
-func sendWork(p Params, currentWorld [][]byte, resultsChannel chan<- [][]byte, server *rpc.Client) {
-	req := Request{P: p, World: currentWorld}
+func sendWork(p Params, resultsChannel chan<- [][]byte, server *rpc.Client, serverNumber int) {
+	req := Request{P: p, World: currentWorld, ServerNumber: serverNumber}
 	res := new(ServerSliceResponse)
 	err := server.Call(CalculateNextStateHandler, req, res)
 	if err != nil {
@@ -205,7 +203,7 @@ func (b *Broker) Quit(req KeyPressed, res *EmptyResponse) (err error) {
 func (b *Broker) Terminate(req KeyPressed, res *EmptyResponse) (err error) {
 	terminateHappened = true
 	terminateSignal <- true
-	// handle terminating servers
+	terminateBrokerSignal <- true
 	return
 }
 
@@ -228,15 +226,15 @@ func (b *Broker) Evolve(req Request, res *Response) (err error) {
 	}
 
 	// Execute all turns of the Game of Life.
-	for *b.CurrentTurn < p.Turns {
+	for currentTurn < p.Turns {
 		evolveMutex.Lock()
 		// send work to servers
 		for i, server := range allServers {
-			go sendWork(p, b.CurrentWorld, resultsChannel[i], server)
+			go sendWork(p, resultsChannel[i], server, i)
 		}
 
-		b.CurrentWorld = assembleNewWorld(resultsChannel, p)
-		*b.CurrentTurn++
+		currentWorld = assembleNewWorld(resultsChannel, p)
+		currentTurn++
 		evolveMutex.Unlock()
 		pauseMutex.Lock()
 		if terminateHappened {
@@ -267,8 +265,8 @@ func (b *Broker) Evolve(req Request, res *Response) (err error) {
 	}
 
 	// Allow turn number and final board to be used by client
-	res.Turn = *b.CurrentTurn
-	res.FinalBoard = b.CurrentWorld
+	res.Turn = currentTurn
+	res.FinalBoard = currentWorld
 
 	return
 }

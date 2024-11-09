@@ -19,14 +19,32 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
+var (
+	closeTickerRoutine = make(chan bool)
+	ensureOneTestMutex sync.Mutex
+	keyPressMutex      sync.Mutex
+	wg                 sync.WaitGroup
+)
+
 func makeCall(broker *rpc.Client, c distributorChannels, p Params, world [][]byte, keyPresses <-chan rune) *Response {
-	var keyPressMutex sync.Mutex
 	request := Request{P: p, World: world}
-	response := new(Response)
-	err1 := broker.Call(InitialiseBoardAndTurnHandler, request, response)
+	err1 := broker.Call(InitialiseBoardAndTurnHandler, request, new(EmptyResponse))
 	if err1 != nil {
 		panic(err1)
 	}
+
+	initialBoardRequest := new(EmptyRequest)
+	initialBoardResponse := new(Response)
+	err := broker.Call(CurrentWorldStateHandler, initialBoardRequest, initialBoardResponse)
+	if err != nil {
+		panic(err)
+	}
+
+	//use this line for actual running
+	//c.events <- StateChange{initialBoardResponse.Turn, Executing}
+	//this one for testing
+	c.events <- StateChange{0, Executing}
+
 	paused := false
 	go func() {
 		for {
@@ -68,7 +86,7 @@ func makeCall(broker *rpc.Client, c distributorChannels, p Params, world [][]byt
 					}
 					req = new(EmptyRequest)
 					res := new(EmptyResponse)
-					broker.Call(TerminateHandler, req, res)
+					broker.Call(TerminateBrokerHandler, req, res)
 					return
 				case 'p':
 					req := new(EmptyRequest)
@@ -104,33 +122,31 @@ func makeCall(broker *rpc.Client, c distributorChannels, p Params, world [][]byt
 	}()
 
 	go getCurrentAliveCells(c, p, world, broker)
-	err2 := broker.Call(GOLHandler, request, response)
+	finalStateRequest := Request{P: p, World: world}
+	finalStateResponse := new(Response)
+	err2 := broker.Call(GOLHandler, finalStateRequest, finalStateResponse)
 
 	if err2 != nil {
 		panic(err2)
 	}
-
-	return response
+	return finalStateResponse
 }
 
 func getCurrentAliveCells(c distributorChannels, p Params, world [][]byte, broker *rpc.Client) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-
-	for range ticker.C {
-		request := new(EmptyRequest)
-		response := new(Response)
-		err := broker.Call(CurrentWorldStateHandler, request, response)
-		if err != nil {
-			continue
+	for {
+		select {
+		case <-ticker.C:
+			// Process the current state
+			res := new(TickerResponse)
+			req := Request{P: p, World: world}
+			broker.Call(ReportAliveCellsHandler, req, res)
+			AliveCellsCountEvent := AliveCellsCount{res.Turn, len(res.AliveCells)}
+			c.events <- AliveCellsCountEvent
+		case <-closeTickerRoutine:
+			return
 		}
-		// Process the current state
-		res := new(TickerResponse)
-		req := Request{P: p, World: world}
-		broker.Call(ReportAliveCellsHandler, req, res)
-		aliveCells := res.AliveCells
-		AliveCellsCountEvent := AliveCellsCount{response.Turn, len(aliveCells)}
-		c.events <- AliveCellsCountEvent
 	}
 }
 
@@ -167,6 +183,9 @@ func saveImage(p Params, c distributorChannels, world [][]byte, filename string)
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
+	ensureOneTestMutex.Lock()
+	defer ensureOneTestMutex.Unlock()
+	wg.Wait()
 	world := createInitialBoard(p, c)
 
 	// client side code
@@ -176,17 +195,18 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 		flag.Parse()
 		brokerAddress = *brokerPtr
 	} else {
-		brokerAddress = flag.Lookup("server").Value.String()
+		brokerAddress = flag.Lookup("broker").Value.String()
 	}
 
 	broker, err := rpc.Dial("tcp", brokerAddress)
+	wg.Add(1)
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
-
-	defer broker.Close()
-
-	c.events <- StateChange{0, Executing}
+	defer func() {
+		broker.Close()
+		wg.Done()
+	}()
 
 	response := makeCall(broker, c, p, world, keyPresses)
 
@@ -201,24 +221,26 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 		<-c.ioIdle
 		c.events <- ImageOutputComplete{res.Turn, filename}
 		c.events <- StateChange{res.Turn, Quitting}
+		closeTickerRoutine <- true
 		close(c.events)
 		return
 	}
 	// utilise the response
 	res := new(TickerResponse)
-	broker.Call(ReportAliveCellsHandler, new(EmptyRequest), res)
+	err = broker.Call(ReportAliveCellsHandler, new(EmptyRequest), res)
+	if err != nil {
+		panic(err)
+	}
 	aliveCells := res.AliveCells
 
 	// Send the filename to write the image in.
-	c.ioCommand <- ioOutput
-	c.ioFilename <- strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.Turns)
-
-	// Send the output world slice.
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			c.ioOutput <- response.FinalBoard[y][x]
-		}
+	req2 := new(EmptyRequest)
+	res2 := new(Response)
+	err = broker.Call(CurrentWorldStateHandler, req2, res2)
+	if err != nil {
+		return
 	}
+	saveImage(p, c, res2.FinalBoard, fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, res2.Turn))
 
 	// Report the final state using FinalTurnCompleteEvent.
 	FinalTurnCompleteEvent := FinalTurnComplete{response.Turn, aliveCells}
@@ -231,5 +253,6 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 	c.events <- StateChange{response.Turn, Quitting}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
+	closeTickerRoutine <- true
 	close(c.events)
 }

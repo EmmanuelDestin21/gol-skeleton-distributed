@@ -11,8 +11,6 @@ import (
 )
 
 type GOLOperations struct {
-	CurrentWorld [][]byte
-	CurrentTurn  *int
 }
 
 var (
@@ -115,10 +113,7 @@ func main() {
 	// Goroutine to handle accepting new connections
 	go func() {
 		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				panic(err)
-			}
+			conn, _ := listener.Accept()
 			wg.Add(1)
 			connChan <- conn
 		}
