@@ -18,6 +18,7 @@ var (
 	clientConnected       = false
 	wg                    sync.WaitGroup
 	numberOfServers       = 4
+	defaultNumWorkers     = 16
 )
 
 func (s *GOLOperations) Terminate(req EmptyRequest, res *EmptyResponse) (err error) {
@@ -25,22 +26,35 @@ func (s *GOLOperations) Terminate(req EmptyRequest, res *EmptyResponse) (err err
 	return
 }
 
-func (s *GOLOperations) CalculateNextState(req Request, res *ServerSliceResponse) (err error) {
-	p := req.P
-	world := req.World
-	serverNumber := req.ServerNumber
-
-	workerHeight := p.ImageHeight / numberOfServers
-	startHeight := serverNumber * workerHeight
-	endHeight := (serverNumber + 1) * workerHeight
-	if serverNumber == numberOfServers-1 {
-		endHeight += p.ImageHeight % numberOfServers
+func startWorkers(startHeight int, endHeight int, IMWD int, world [][]byte, p Params) [][]byte {
+	var newSlice [][]byte
+	rowsToOperate := endHeight - startHeight
+	numWorkers := defaultNumWorkers
+	if rowsToOperate < defaultNumWorkers {
+		numWorkers = rowsToOperate
 	}
-	IMWD := p.ImageWidth
+	workerChannels := make([]chan [][]byte, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		workerChannels[i] = make(chan [][]byte)
+		workerStartHeight := i*(rowsToOperate/numWorkers) + startHeight
+		workerEndHeight := (i+1)*(rowsToOperate/numWorkers) + startHeight
+		if i == numWorkers-1 {
+			workerEndHeight += rowsToOperate % numWorkers
+		}
+		go worker(workerStartHeight, workerEndHeight, IMWD, world, p, workerChannels[i])
+	}
+	workerSection := make([][]byte, rowsToOperate/numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		workerSection = <-workerChannels[i]
+		newSlice = append(newSlice, workerSection...)
+	}
+	return newSlice
+}
 
-	res.Slice = make([][]byte, endHeight-startHeight)
-	for i := range res.Slice {
-		res.Slice[i] = make([]byte, IMWD)
+func worker(startHeight int, endHeight int, IMWD int, world [][]byte, p Params, workerChannel chan [][]byte) {
+	workerSlice := make([][]byte, endHeight-startHeight)
+	for i := range workerSlice {
+		workerSlice[i] = make([]byte, IMWD)
 	}
 
 	for y := startHeight; y < endHeight; y++ {
@@ -63,20 +77,38 @@ func (s *GOLOperations) CalculateNextState(req Request, res *ServerSliceResponse
 			if world[y][x] == 255 {
 				// Cell is alive
 				if sum < 2*255 || sum > 3*255 {
-					res.Slice[y-startHeight][x] = 0 // Underpopulation or overpopulation: cell dies
+					workerSlice[y-startHeight][x] = 0 // Underpopulation or overpopulation: cell dies
 				} else {
-					res.Slice[y-startHeight][x] = 255 // Cell survives
+					workerSlice[y-startHeight][x] = 255 // Cell survives
 				}
 			} else {
 				// Cell is dead
 				if sum == 3*255 {
-					res.Slice[y-startHeight][x] = 255 // Reproduction: cell becomes alive
+					workerSlice[y-startHeight][x] = 255 // Reproduction: cell becomes alive
 				} else {
-					res.Slice[y-startHeight][x] = 0 // Cell remains dead
+					workerSlice[y-startHeight][x] = 0 // Cell remains dead
 				}
 			}
 		}
 	}
+	workerChannel <- workerSlice
+}
+
+func (s *GOLOperations) CalculateNextState(req Request, res *ServerSliceResponse) (err error) {
+	p := req.P
+	world := req.World
+	serverNumber := req.ServerNumber
+
+	workerHeight := p.ImageHeight / numberOfServers
+	startHeight := serverNumber * workerHeight
+	endHeight := (serverNumber + 1) * workerHeight
+	if serverNumber == numberOfServers-1 {
+		endHeight += p.ImageHeight % numberOfServers
+	}
+	IMWD := p.ImageWidth
+
+	res.Slice = startWorkers(startHeight, endHeight, IMWD, world, p)
+
 	return
 }
 
