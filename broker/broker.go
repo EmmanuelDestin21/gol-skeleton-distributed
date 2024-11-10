@@ -144,19 +144,6 @@ func (b *Broker) ReportAliveCells(req EmptyRequest, res *TickerResponse) (err er
 }
 
 func (b *Broker) InitialiseBoardAndTurn(req Request, res *EmptyResponse) (err error) {
-	//if quitHappened {
-	//	pauseBool = false
-	//	quitHappened = false
-	//	terminateHappened = false
-	//} else {
-	//	pauseBool = false
-	//	quitHappened = false
-	//	terminateHappened = false
-	//	currentWorld = req.World
-	//	currentTurn = 0
-	//	imageWidth = req.P.ImageWidth
-	//	imageHeight = req.P.ImageHeight
-	//}
 	pauseBool = false
 	quitHappened = false
 	terminateHappened = false

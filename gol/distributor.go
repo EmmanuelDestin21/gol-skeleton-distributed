@@ -40,9 +40,6 @@ func makeCall(broker *rpc.Client, c distributorChannels, p Params, world [][]byt
 		panic(err)
 	}
 
-	//use this line for actual running
-	//c.events <- StateChange{initialBoardResponse.Turn, Executing}
-	//this one for testing
 	c.events <- StateChange{0, Executing}
 
 	paused := false
@@ -72,9 +69,6 @@ func makeCall(broker *rpc.Client, c distributorChannels, p Params, world [][]byt
 					if err != nil {
 						panic(err)
 					}
-					fmt.Println()
-					fmt.Println()
-
 					return
 				case 'k':
 					// outputs final pgm image and shuts both client and server
@@ -181,7 +175,6 @@ func saveImage(p Params, c distributorChannels, world [][]byte, filename string)
 	}
 }
 
-// distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 	ensureOneTestMutex.Lock()
 	defer ensureOneTestMutex.Unlock()
@@ -214,7 +207,6 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 		req := new(EmptyRequest)
 		res := new(Response)
 		broker.Call(CurrentWorldStateHandler, req, res)
-		// Don't know if this is what you're meant to do for 'k', instructions not clear, asked TA who said it is
 		filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, res.Turn)
 		saveImage(p, c, res.FinalBoard, filename)
 		c.ioCommand <- ioCheckIdle
@@ -225,6 +217,7 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 		close(c.events)
 		return
 	}
+
 	// utilise the response
 	res := new(TickerResponse)
 	err = broker.Call(ReportAliveCellsHandler, new(EmptyRequest), res)
