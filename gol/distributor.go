@@ -40,9 +40,6 @@ func makeCall(broker *rpc.Client, c distributorChannels, p Params, world [][]byt
 		panic(err)
 	}
 
-	//use this line for actual running
-	//c.events <- StateChange{initialBoardResponse.Turn, Executing}
-	//this one for testing
 	c.events <- StateChange{0, Executing}
 
 	paused := false
@@ -214,7 +211,6 @@ func distributor(p Params, keyPresses <-chan rune, c distributorChannels) {
 		req := new(EmptyRequest)
 		res := new(Response)
 		broker.Call(CurrentWorldStateHandler, req, res)
-		// Don't know if this is what you're meant to do for 'k', instructions not clear, asked TA who said it is
 		filename := fmt.Sprintf("%dx%dx%d", p.ImageWidth, p.ImageHeight, res.Turn)
 		saveImage(p, c, res.FinalBoard, filename)
 		c.ioCommand <- ioCheckIdle
