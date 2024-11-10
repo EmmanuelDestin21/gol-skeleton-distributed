@@ -33,13 +33,6 @@ func makeCall(broker *rpc.Client, c distributorChannels, p Params, world [][]byt
 		panic(err1)
 	}
 
-	initialBoardRequest := new(EmptyRequest)
-	initialBoardResponse := new(Response)
-	err := broker.Call(CurrentWorldStateHandler, initialBoardRequest, initialBoardResponse)
-	if err != nil {
-		panic(err)
-	}
-
 	c.events <- StateChange{0, Executing}
 
 	paused := false
