@@ -62,19 +62,10 @@ func makeCall(broker *rpc.Client, c distributorChannels, p Params, world [][]byt
 					if err != nil {
 						panic(err)
 					}
-					fmt.Println()
-					fmt.Println()
-
 					return
 				case 'k':
 					// outputs final pgm image and shuts both client and server
 					req := new(EmptyRequest)
-					currentWorldStateResponse := new(Response)
-					err := broker.Call(CurrentWorldStateHandler, req, currentWorldStateResponse)
-					if err != nil {
-						panic(err)
-					}
-					req = new(EmptyRequest)
 					res := new(EmptyResponse)
 					broker.Call(TerminateBrokerHandler, req, res)
 					return
